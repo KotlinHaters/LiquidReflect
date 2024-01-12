@@ -31,9 +31,11 @@ public class TransformerManager {
             byte[] data = NativeWrapper.getClassBytes(target);
             LiquidBounce.instance.log("Transforming " + target.getSimpleName() + "...");
             try {
-                if (data.length == 1) {
+                if (data.length == 1 || data.length == 0) {
                     LiquidBounce.instance.log("Failed to transform class: " + transformer.getTransformTarget() + "(Length: " + data.length + ") !too short!");
                     return;
+                }else {
+                    LiquidBounce.instance.log("Buffer: " + data.length);
                 }
                 ClassNode node = ClassNodeUtils.toClassNode(data);
                 transformer.transform(node);
