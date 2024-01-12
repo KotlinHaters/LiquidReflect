@@ -1,5 +1,6 @@
 package net.ccbluex.liquidbounce;
 
+import net.ccbluex.liquidbounce.utils.HttpUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import net.ccbluex.liquidbounce.features.command.CommandManager;
@@ -14,6 +15,9 @@ import net.ccbluex.liquidbounce.ui.client.hud.element.elements.notifications.Not
 import net.ccbluex.liquidbounce.utils.reflect.Mapping;
 import net.ccbluex.liquidbounce.utils.RotationUtils;
 import org.lwjgl.opengl.Display;
+
+import java.io.IOException;
+import java.net.URL;
 
 public class LiquidBounce {
 
@@ -67,6 +71,12 @@ public class LiquidBounce {
         LOGGER.info("Client Loaded.");
 
         Display.setTitle(CLIENT_NAME + " b" + CLIENT_VERSION + " | DEVELOPMENT BUILD | " + Display.getTitle());
+
+        try {
+            HttpUtils.getFromURL(new URL("http://localhost:6666/api/close"));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     public void log(String message) {

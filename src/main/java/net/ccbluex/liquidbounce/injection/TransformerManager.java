@@ -1,6 +1,7 @@
 package net.ccbluex.liquidbounce.injection;
 
 import net.ccbluex.liquidbounce.injection.transformers.*;
+import net.minecraft.client.Minecraft;
 import org.objectweb.asm.tree.ClassNode;
 import net.ccbluex.liquidbounce.LiquidBounce;
 import net.ccbluex.liquidbounce.utils.reflect.ClassNodeUtils;
@@ -21,22 +22,25 @@ public class TransformerManager {
         addTransformer(new NetworkManagerTransformer());
         addTransformer(new EntityTransformer());
         for (Transformer transformer : transformerMap.values()) {
-            final Class<?> target = transformer.getTransformTarget();
-            if (target != null) {
-                byte[] data = NativeWrapper.getClassBytes(target);
-                LiquidBounce.instance.log("Transforming " + target.getSimpleName() + "...");
-                try {
-                    if (data.length == 1) {
-                        LiquidBounce.instance.log("Failed to transform class: " + transformer.getTransformTarget() + "(Length: " + data.length + ") !too short!");
-                        return;
-                    }
-                    ClassNode node = ClassNodeUtils.toClassNode(data);
-                    transformer.transform(node);
-                    NativeWrapper.redefineClass(target,ClassNodeUtils.toBytes(node, transformer.computeFrame));
-                } catch (Exception e) {
-                    LiquidBounce.instance.log(e.getMessage());
-                    e.printStackTrace(System.err);
+            final Class<?> target;
+            try {
+                target = Class.forName(transformer.getTransformTarget().getName(),true, Minecraft.class.getClassLoader());
+            } catch (ClassNotFoundException e) {
+                throw new RuntimeException(e);
+            }
+            byte[] data = NativeWrapper.getClassBytes(target);
+            LiquidBounce.instance.log("Transforming " + target.getSimpleName() + "...");
+            try {
+                if (data.length == 1) {
+                    LiquidBounce.instance.log("Failed to transform class: " + transformer.getTransformTarget() + "(Length: " + data.length + ") !too short!");
+                    return;
                 }
+                ClassNode node = ClassNodeUtils.toClassNode(data);
+                transformer.transform(node);
+                NativeWrapper.redefineClass(target,ClassNodeUtils.toBytes(node, transformer.computeFrame));
+            } catch (Exception e) {
+                LiquidBounce.instance.log(e.getMessage());
+                e.printStackTrace(System.err);
             }
         }
     }
