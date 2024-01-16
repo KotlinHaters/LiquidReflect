@@ -21,30 +21,30 @@ public class TransformerManager {
         addTransformer(new EntityRendererTransformer());
         addTransformer(new NetworkManagerTransformer());
         addTransformer(new EntityTransformer());
-        for (Transformer transformer : transformerMap.values()) {
-            final Class<?> target;
-            try {
-                target = Class.forName(transformer.getTransformTarget().getName(),true, Minecraft.class.getClassLoader());
-            } catch (ClassNotFoundException e) {
-                throw new RuntimeException(e);
-            }
-            byte[] data = NativeWrapper.getClassBytes(target);
-            LiquidBounce.instance.log("Transforming " + target.getSimpleName() + "...");
-            try {
-                if (data.length == 1 || data.length == 0) {
-                    LiquidBounce.instance.log("Failed to transform class: " + transformer.getTransformTarget() + "(Length: " + data.length + ") !too short!");
-                    return;
-                }else {
-                    LiquidBounce.instance.log("Buffer: " + data.length);
+        ClassProcessor loadHook;
+        Environment.addClassProcessor(loadHook = (cls, data) -> {
+            for (Transformer transformer : transformerMap.values()) {
+                if (cls.equals( transformer.getTransformTarget().getName())) {
+                    try {
+                        if (data.length == 1 || data.length == 0) {
+                            LiquidBounce.instance.log("Failed to transform class: " + transformer.getTransformTarget() + "(Length: " + data.length + ") !too short!");
+                            return data;
+                        } else {
+                            LiquidBounce.instance.log("Buffer: " + data.length);
+                        }
+                        ClassNode node = ClassNodeUtils.toClassNode(data);
+                        transformer.transform(node);
+                        return ClassNodeUtils.toBytes(node, transformer.computeFrame);
+                    } catch (Exception e) {
+                        LiquidBounce.instance.log(e.getMessage());
+                        e.printStackTrace(System.err);
+                    }
                 }
-                ClassNode node = ClassNodeUtils.toClassNode(data);
-                transformer.transform(node);
-                NativeWrapper.redefineClass(target,ClassNodeUtils.toBytes(node, transformer.computeFrame));
-            } catch (Exception e) {
-                LiquidBounce.instance.log(e.getMessage());
-                e.printStackTrace(System.err);
             }
-        }
+            return data;
+        });
+        transformerMap.forEach((s, transformer) -> NativeWrapper.retransformClass(transformer.getTransformTarget()));
+        Environment.removeClassProcessor(loadHook);
     }
 
     private void addTransformer(Transformer transformer) {

@@ -8,107 +8,56 @@
 JavaVM* jvm;
 JNIEnv* jniEnv;
 jvmtiEnv* jvmti;
+jclass envClass;
+jmethodID methodID;
 
-
-struct Callback {
-    const unsigned char* array;
-    jint length;
-    int success;
-};
-
-struct TransformCallback {
-    jclass clazz;
-    struct Callback* callback;
-    struct TransformCallback* next;
-};
-
-static struct TransformCallback* callback_list = NULL;
-
-void JNICALL classFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* env,
-    jclass class_being_redefined, jobject loader,
-    const char* name, jobject protection_domain,
-    jint class_data_len, const unsigned char* class_data,
-    jint* new_class_data_len, unsigned char** new_class_data) {
-
-    *new_class_data = NULL;
-
-    if (class_being_redefined) {
-        struct TransformCallback* current = callback_list;
-        struct TransformCallback* previous = NULL;
-
-        while (current != NULL) {
-            if (!(*env)->IsSameObject(env, current->clazz, class_being_redefined)) {
-                previous = current;
-                current = current->next;
-                continue;
-            }
-
-            if (previous == NULL) {
-                callback_list = current->next;
-            }
-            else {
-                previous->next = current->next;
-            }
-
-            current->callback->array = class_data;
-            current->callback->length = class_data_len;
-            current->callback->success = 1;
-
-            free(current);
-            break;
-        }
-    }
+jbyteArray asByteArray(JNIEnv* env, const unsigned char* buf, int len) {
+    jbyteArray array = (*env)->NewByteArray(env, len);
+    (*env)->SetByteArrayRegion(env, array, 0, len, (const jbyte*)buf);
+    return array;
 }
 
-void* allocate(jlong size) {
-    void* resultBuffer = malloc(size);
-    return resultBuffer;
+unsigned char* asUnsignedCharArray(JNIEnv* env, jbyteArray array) {
+    int len = (*env)->GetArrayLength(env, array);
+    unsigned char* buf = (unsigned char*)malloc(len);
+    (*env)->GetByteArrayRegion(env, array, 0, len, (jbyte*)buf);
+    return buf;
 }
 
-JNIEXPORT jbyteArray JNICALL GetClassBytes(JNIEnv* env, jclass _, jclass clazz) {
-    struct Callback* retransform_callback = (struct Callback*)allocate(sizeof(struct Callback));
-    retransform_callback->success = 0;
+void JNICALL classFileLoadHook(jvmtiEnv* jvmti,
+    JNIEnv* env,
+    jclass class_being_redefined,
+    jobject loader,
+    const char* name,
+    jobject protection_domain,
+    jint data_len,
+    const unsigned char* data,
+    jint* new_data_len,
+    unsigned char** new_data) {
 
-    struct TransformCallback* new_node = (struct TransformCallback*)allocate(sizeof(struct TransformCallback));
-    new_node->clazz = clazz;
-    new_node->callback = retransform_callback;
-    new_node->next = callback_list;
-    callback_list = new_node;
-
-    jclass* classes = (jclass*)allocate(sizeof(jclass));
-    classes[0] = clazz;
-
-    jint err = (*jvmti)->RetransformClasses((jvmtiEnv*)jvmti, 1, classes);
-
-    if (err > 0) {
-        printf("jvmti error while getting class bytes: %d\n", err);
-        return NULL;
+    if (name == NULL) {
+        return;
     }
 
-    jbyteArray output = (*env)->NewByteArray(env, retransform_callback->length);
-    (*env)->SetByteArrayRegion(env, output, 0, retransform_callback->length, (jbyte*)retransform_callback->array);
+    (*jvmti)->Allocate(jvmti, data_len, new_data);
+    *new_data_len = data_len;
+    memcpy(*new_data, data, data_len);
 
-    free(classes);
-    return output;
+    const jbyteArray plainBytes = asByteArray(env, *new_data, *new_data_len);
+    jbyteArray newByteArray = (jbyteArray)(*env)->CallStaticObjectMethod(env, envClass, methodID, (*env)->NewStringUTF(env, name), plainBytes);
+
+    unsigned char* newChars = asUnsignedCharArray(env, newByteArray);
+    const jint newLength = (jint)(*env)->GetArrayLength(env, newByteArray);
+
+    (*jvmti)->Allocate(jvmti, newLength, new_data);
+    *new_data_len = newLength;
+    memcpy(*new_data, newChars, newLength);
 }
 
-JNIEXPORT jint JNICALL RedefineClass(JNIEnv* env, jclass _, jclass clazz, jbyteArray classBytes) {
-    jbyte* classByteArray = (*env)->GetByteArrayElements(env, classBytes, NULL);
-    struct Callback* retransform_callback = (struct Callback*)allocate(sizeof(struct Callback));
-    retransform_callback->success = 0;
-    struct TransformCallback* new_node = (struct TransformCallback*)allocate(sizeof(struct TransformCallback));
-    new_node->clazz = clazz;
-    new_node->callback = retransform_callback;
-    new_node->next = callback_list;
-    callback_list = new_node;
-    jvmtiClassDefinition* definitions = (jvmtiClassDefinition*)allocate(sizeof(jvmtiClassDefinition));
-    definitions->klass = clazz;
-    definitions->class_byte_count = (*env)->GetArrayLength(env, classBytes);
-    definitions->class_bytes = (unsigned char*)classByteArray;
-    jint error = (jint)(*jvmti)->RedefineClasses((jvmtiEnv*)jvmti, 1, definitions);
-    (*env)->ReleaseByteArrayElements(env, classBytes, classByteArray, 0);
-    free(definitions);
-    return error;
+JNIEXPORT void JNICALL retransformClass(JNIEnv* env, jclass caller, jclass target) {
+    jclass classes[1];
+    classes[0] = target;
+    (*jvmti)->RetransformClasses(jvmti, 1, classes);
 }
 
 jclass DefineClass(JNIEnv* env, jobject obj, jobject classLoader, jbyteArray bytes)
@@ -178,6 +127,11 @@ DWORD WINAPI Inject(LPVOID parm) {
     jstring entryClass = (*jniEnv)->NewStringUTF(jniEnv, "net/ccbluex/liquidbounce/injection/Loader");
     jclass clazz = (jclass)(*jniEnv)->CallObjectMethod(jniEnv, (*jniEnv)->CallObjectMethod(jniEnv, clientThread, (*jniEnv)->GetMethodID(jniEnv, (*jniEnv)->GetObjectClass(jniEnv, clientThread), "getContextClassLoader", "()Ljava/lang/ClassLoader;")), findClass, entryClass);
 
+    jstring envClazz = (*jniEnv)->NewStringUTF(jniEnv, "net/ccbluex/liquidbounce/injection/Environment");
+    envClass = (jclass)(*jniEnv)->CallObjectMethod(jniEnv, (*jniEnv)->CallObjectMethod(jniEnv, clientThread, (*jniEnv)->GetMethodID(jniEnv, (*jniEnv)->GetObjectClass(jniEnv, clientThread), "getContextClassLoader", "()Ljava/lang/ClassLoader;")), findClass, envClazz);
+
+    methodID = (*jniEnv)->GetStaticMethodID(jniEnv,envClass, "processClass", "(Ljava/lang/String;[B)[B");
+
     jvmtiCapabilities capabilities = { 0 };
     memset(&capabilities, 0, sizeof(jvmtiCapabilities));
 
@@ -203,8 +157,7 @@ DWORD WINAPI Inject(LPVOID parm) {
 
     JNINativeMethod methods[] =
     {
-        {"getClassBytes", "(Ljava/lang/Class;)[B", (void*)&GetClassBytes},
-        {"redefineClass", "(Ljava/lang/Class;[B)I", (void*)&RedefineClass},
+        {"retransformClass", "(Ljava/lang/Class;[B)I", (void*)&retransformClass},
         {"defineClass", "(Ljava/lang/ClassLoader;[B)Ljava/lang/Class;", (void*)&DefineClass}
     };
 

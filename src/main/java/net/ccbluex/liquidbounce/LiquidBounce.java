@@ -1,5 +1,6 @@
 package net.ccbluex.liquidbounce;
 
+import net.ccbluex.liquidbounce.injection.mapping.MappingParser;
 import net.ccbluex.liquidbounce.utils.HttpUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -34,12 +35,21 @@ public class LiquidBounce {
     public final EventManager eventManager = new EventManager();
     public final CommandManager commandManager = new CommandManager();
     public static final TransformerManager transformerManager = new TransformerManager();
+    public final MappingParser mapping;
     public HUD hud;
     public ClickGui clickGui;
 
     public LiquidBounce() {
         instance = this;
         Logger LOGGER = LogManager.getLogger("Bootstrap");
+        LOGGER.info("Preparing Mapping...");
+
+        if(isForge()){
+            mapping = new MappingParser("mcp-srg.srg");
+        }else {
+            mapping = new MappingParser("");
+        }
+
         try {
             LOGGER.info("Transforming...");
             transformerManager.registerTransformers();
@@ -72,11 +82,11 @@ public class LiquidBounce {
 
         Display.setTitle(CLIENT_NAME + " b" + CLIENT_VERSION + " | DEVELOPMENT BUILD | " + Display.getTitle());
 
-        try {
+ /*       try {
             HttpUtils.getFromURL(new URL("http://localhost:6666/api/close"));
         } catch (IOException e) {
             e.printStackTrace();
-        }
+        }*/
     }
 
     public void log(String message) {
@@ -86,4 +96,14 @@ public class LiquidBounce {
     public void stopClient() {
 
     }
+
+    public static boolean isForge() {
+        try {
+            Class.forName("net.minecraftforge.common.MinecraftForge");
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
+    }
+
 }
