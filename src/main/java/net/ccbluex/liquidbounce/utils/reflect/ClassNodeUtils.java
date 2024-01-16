@@ -1,5 +1,6 @@
 package net.ccbluex.liquidbounce.utils.reflect;
 
+import net.ccbluex.liquidbounce.injection.BytecodeGrabber;
 import net.ccbluex.liquidbounce.injection.NativeWrapper;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
@@ -8,7 +9,8 @@ import org.objectweb.asm.tree.ClassNode;
 public class ClassNodeUtils {
 
     public static ClassNode getClassNode(Class<?> clazz) {
-        final ClassReader classReader = new ClassReader(NativeWrapper.getClassBytes(clazz));
+        BytecodeGrabber grabber = new BytecodeGrabber();
+        final ClassReader classReader = new ClassReader(grabber.getBytecode(clazz));
         final ClassNode classNode = new ClassNode();
         classReader.accept(classNode, 0);
 
